@@ -1,0 +1,113 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider     = "mysql"
+    url          = env("DATABASE_URL")
+    relationMode = "prisma"
+}
+
+model User {
+    id          String  @id @default(uuid())
+    email       String  @unique
+    phoneNumber String  @unique
+    firstName   String
+    lastName    String
+    password    String
+    age         Int
+    bio         String?
+    gender      String?
+    race        String?
+    images      Json
+    tags        Json
+    longitude   Float?
+    latitude    Float?
+    authSteps   Int     @default(0)
+    isBot       Boolean @default(false)
+
+    feed   User[] @relation("UserFeed")
+    feedOf User[] @relation("UserFeed")
+
+    // seen String[]
+
+    filterGoingToday Boolean @default(false)
+    filterWorkout    Json
+    filterSkillLevel Json
+    filterGender     Json
+    filterGoals      Json
+
+    chats   Chat[]    @relation("participants")
+    Message Message[]
+
+    streak Int @default(0)
+
+    tempJWT          String?
+    verificationCode String?
+    verified         Boolean? @default(false)
+
+    gym       Gym?     @relation(fields: [gymId], references: [id])
+    gymId     String?
+    split     Split?   @relation(fields: [splitId], references: [id])
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    chatId  String?
+    Chat    Chat?
+    splitId String?
+    userId  String?
+}
+
+model Gym {
+    id         String   @id @default(uuid())
+    name       String
+    location   Location @relation(fields: [locationId], references: [id])
+    radius     Float    @default(5)
+    createdAt  DateTime @default(now())
+    updatedAt  DateTime @updatedAt
+    users      User[]
+    locationId String
+}
+
+model Location {
+    id     String @id @default(uuid())
+    lat    Float
+    long   Float
+    radius Float
+    Gym    Gym[]
+}
+
+model Split {
+    id        String @id @default(uuid())
+    monday    Json
+    tuesday   Json
+    wednesday Json
+    thursday  Json
+    friday    Json
+    saturday  Json
+    sunday    Json
+
+    users User[]
+}
+
+model Chat {
+    id           String    @id @default(uuid())
+    name         String
+    createdAt    DateTime  @default(now())
+    updatedAt    DateTime  @updatedAt
+    participants User[]    @relation("participants")
+    userId       String?   @unique
+    user         User?     @relation(fields: [userId], references: [id])
+    messages     Message[]
+}
+
+model Message {
+    id        String   @id @default(uuid())
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    chatId    String
+    senderId  String
+    sender    User     @relation(fields: [senderId], references: [id])
+    content   String
+    chat      Chat     @relation(fields: [chatId], references: [id])
+}
