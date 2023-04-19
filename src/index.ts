@@ -1,8 +1,36 @@
 import express from 'express';
-import { Server } from 'socket.io';
+import { Server, Socket } from 'socket.io';
 import http from 'http';
 import cors from 'cors';
 import { Chat, PrismaClient } from '@prisma/client';
+
+interface JoinChatData {
+  roomName: string;
+  roomId: string;
+  initialMessage?: string;
+  sender: {
+    id: string;
+    firstName: string;
+    lastName: string;
+  };
+}
+
+interface ChatMessageData {
+  createdAt: Date;
+  roomName: string;
+  roomId: string;
+  sender: {
+    id: string;
+    firstName: string;
+    lastName: string;
+  };
+  content: string;
+}
+
+interface TypingData {
+  isTyping: boolean;
+  roomName: string;
+}
 
 const prisma = new PrismaClient();
 
@@ -18,44 +46,84 @@ const io = new Server(server, {
   },
 });
 
-io.on('connection', (socket) => {
-  console.log('a user connected: ', socket.id);
-
-  socket.on('join-chat', async (data: any) => {
-    socket.join(data.roomName);
-
-    const messages = await prisma.chat.findUnique({
+async function fetchAndEmitMessages(
+  roomId: string,
+  socket: Socket,
+  initialMessage?: ChatMessageData | null
+) {
+  if (initialMessage) {
+    await prisma.chat.update({
       where: {
-        id: data.roomId,
+        id: roomId,
       },
-      select: {
+      data: {
         messages: {
-          select: {
-            createdAt: true,
-            content: true,
+          create: {
+            content: initialMessage.content,
             sender: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
+              connect: {
+                id: initialMessage.sender.id,
               },
             },
           },
         },
       },
     });
-    // when a user joins the chat it should emit the latest 50 messages and use the createdDate to show them in newest to latest
-    if (messages && messages.messages.length > 50) {
-      const sortedMessages = messages.messages.sort(
-        (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
-      );
-      socket.emit(
-        'messages',
-        [...sortedMessages].slice(Math.max(sortedMessages.length - 50, 0))
-      );
-    } else {
-      socket.emit('messages', messages?.messages);
-    }
+  }
+  const messages = await prisma.chat.findUnique({
+    where: {
+      id: roomId,
+    },
+    select: {
+      messages: {
+        select: {
+          createdAt: true,
+          content: true,
+          sender: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  let allMessages = messages?.messages || [];
+
+  if (allMessages.length > 50) {
+    const sortedMessages = allMessages.sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+    );
+    socket.emit(
+      'messages',
+      [...sortedMessages].slice(Math.max(sortedMessages.length - 50, 0))
+    );
+  } else {
+    socket.emit('messages', allMessages);
+  }
+}
+
+io.on('connection', (socket) => {
+  console.log('a user connected: ', socket.id);
+
+  socket.on('join-chat', async (data: JoinChatData) => {
+    socket.join(data.roomName);
+    // await prisma.message.deleteMany({});
+
+    console.log('init message: ', data.initialMessage);
+    const initialMessage: ChatMessageData | null = data.initialMessage
+      ? {
+          roomName: data.roomName,
+          roomId: data.roomId,
+          content: data.initialMessage,
+          createdAt: new Date(),
+          sender: { ...data.sender },
+        }
+      : null;
+    await fetchAndEmitMessages(data.roomId, socket, initialMessage);
 
     socket.on('leave-chat', (data: Chat) => {
       console.log('leave-chat: ', data);
@@ -65,7 +133,8 @@ io.on('connection', (socket) => {
   });
 
   // listen to a chat-messge
-  socket.on('chat-message', async (data) => {
+  socket.on('chat-message', async (data: ChatMessageData) => {
+    console.log('chat-message: ', data.content);
     const chat = await prisma.chat.update({
       where: {
         id: data.roomId,
@@ -105,7 +174,7 @@ io.on('connection', (socket) => {
   });
 
   // add functionality to listen for typing
-  socket.on('typing', (data) => {
+  socket.on('typing', (data: TypingData) => {
     const { isTyping, roomName }: { isTyping: boolean; roomName: string } =
       data;
     console.log('typing: ', data);
@@ -118,5 +187,5 @@ io.on('connection', (socket) => {
 });
 
 server.listen(process.env.PORT || 3001, () => {
-  console.log('Server started on port 3000');
+  console.log('Server started on port 3001');
 });
